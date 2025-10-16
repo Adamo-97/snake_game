@@ -1,30 +1,23 @@
-# Makefile for the Snake lab.
-# This is a modified version of the nibbles 
-# lab by Simon Kågström and Håkan Grahn
-#
-# Author: Christoffer Åleskog
-
+# Makefile for snake game in C and assembly
+# Usage:
+#   make            - build both versions
+#   make snake_asm  - build C entry version
+#   make snake_asm_start - build pure ASM entry version
+#   make clean      - remove binaries and object files
 all: snake_asm snake_asm_start
 
-# Rule for compiling C source
 .c.o:
 	gcc -Os -Wall -g -c $<
 
-# Rule for compiling assembly source
-snake.o: snake.asm
-	as -gstabs $^ -o $@
-start.o: start.asm
-	as -gstabs $^ -o $@
+%.o: %.asm
+	as -gstabs $< -o $@
 
-# ASM game
 snake_asm: main.o snake.o helpers.o
-	gcc -lncurses $^ -o $@
+	gcc $^ -lncurses -o $@
 
-# ASM game
 snake_asm_start: start.o snake.o helpers.o workaround.o
-	gcc -lncurses -lc -nostdlib $^ -o $@
+	gcc -nostdlib -no-pie -Wl,-e,_start $^ -lc -lncurses -o $@
 
 clean:
-	rm -f *~
-	rm -f *.o
-	rm -f snake snake_asm
+	rm -f *~ *.o snake snake_asm snake_asm_start
+

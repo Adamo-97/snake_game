@@ -1,9 +1,4 @@
-.data
-
-.globl  __progname
-__progname:
-        .int    0
-
-.globl  environ
-environ:
-        .int   0
+        .data
+        .globl __progname, environ
+__progname: .quad 0
+environ:    .quad 0
