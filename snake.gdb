@@ -4,11 +4,9 @@ set logging file snake_dbg.txt
 set logging overwrite on
 set logging enabled on
 
-# Don't stop on common signals ncurses/usleep use
 handle SIGWINCH nostop noprint pass
 handle SIGALRM  nostop noprint pass
 
-# After init: arrays should be centered (only head drawn on screen)
 break init_snake_done
 commands
   silent
@@ -50,5 +48,4 @@ commands
   continue
 end
 
-# Auto-run your program with args
 run
