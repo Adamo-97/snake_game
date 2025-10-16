@@ -53,3 +53,6 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+snake_asm
+snake_asm_start
