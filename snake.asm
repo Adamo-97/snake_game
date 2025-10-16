@@ -1,12 +1,3 @@
-/* Snake in x86-64 AT&T syntax for GNU as + helpers.c (ncurses)
- * - Multiple apples, growth on eat
- * - Continuous motion, arrows, no reverse
- * - Self-collision => die
- * - # border; die on wall (inner field 1..W-2 x 1..H-2)
- * - Start centered
- * - Small speed-up each apple
- */
-
         .att_syntax
 
 /* ------------------------------ Constants ------------------------------ */
@@ -62,6 +53,7 @@ old_x:          .long  0
 old_y:          .long  0
 tail_x:         .long  0
 tail_y:         .long  0
+grow_flag:      .long  0
 
 /* ------------------------------ Code ------------------------------ */
         .text
@@ -125,26 +117,39 @@ start_game:
 4:
         /* ---------------------------------- */
 
-        /* Clamp: len>=2, apples>=1 */
+        /* Clamp: len>=2, len<=INNER_W/2, apples>=1 */
         movl    cur_len(%rip), %eax
         cmpl    $2, %eax
         jge     5f
         movl    $2, cur_len(%rip)
+        jmp     6f
 5:
+        /* Make sure snake isn't too long for the board */
+        movl    $INNER_W, %ecx
+        shrl    $1, %ecx         /* INNER_W/2 */
+        cmpl    %ecx, %eax
+        jle     6f
+        movl    %ecx, cur_len(%rip)
+6:
         movl    apple_count(%rip), %eax
         cmpl    $1, %eax
-        jge     6f
+        jge     7f
         movl    $1, apple_count(%rip)
-6:
-
+7:
+        /* apples >= 1 already handled; now cap to MAX_APPLES */
+        movl    apple_count(%rip), %eax
+        cmpl    $MAX_APPLES, %eax
+        jle     8f
+        movl    $MAX_APPLES, apple_count(%rip)
+8:       
         /* Direction RIGHT, delay */
         movl    $DIR_RIGHT, cur_dir(%rip)
         movq    $START_DELAY, %rax
         movq    %rax, delay_us(%rip)
 
         /* Center head (inside field already for 60x20) */
-        movl    $BOARD_W/2, %r8d
-        movl    $BOARD_H/2, %r9d
+        movl    $BOARD_W/2, %r8d               /* head x */
+        movl    $BOARD_H/2, %r9d               /* head y */
 
         /* Build initial snake inside inner field, horizontal left */
         xorl    %ebx, %ebx
@@ -153,37 +158,28 @@ init_snake_loop:
         cmpl    %eax, %ebx
         jge     init_snake_done
 
-        /* x = 1 + ((headx-1 - i) mod INNER_W) */
+        /* x = headx - i */
         movl    %r8d, %edx
-        decl    %edx
         subl    %ebx, %edx
-        movl    $INNER_W, %ecx
-        movl    %edx, %eax
-        cltd
-        idivl   %ecx                 /* eax=quot, edx=rem (-INNER_W<rem<INNER_W) */
-        movl    %edx, %edx
-        cmpl    $0, %edx
-        jge     7f
-        addl    %ecx, %edx
-7:      incl    %edx                 /* 1..INNER_W */
+        /* y = heady for every segment */
+        movl    %r9d, %ecx
 
-        movl    %r9d, %ecx           /* y = heady */
-
+        /* write arrays */
         movl    %edx, (%r12,%rbx,4)
         movl    %ecx, (%r13,%rbx,4)
 
-        cmpl    $0, %ebx
-        jne     8f
-        movl    %edx, %edi           /* head */
+        /* draw head and body at init */
+        movl    %edx, %edi
         movl    %ecx, %esi
+        testl   %ebx, %ebx
+        jne     1f
         movl    $CH_HEAD, %edx
-        call    board_put_char
-        jmp     9f
-8:      movl    %edx, %edi           /* body */
-        movl    %ecx, %esi
+        jmp     2f
+1:
         movl    $CH_BODY, %edx
+2:
         call    board_put_char
-9:
+
         incl    %ebx
         jmp     init_snake_loop
 init_snake_done:
@@ -303,7 +299,7 @@ ok_wall:
         movl    %edi, next_x(%rip)
         movl    %esi, next_y(%rip)
 
-        /* snapshot OLD tail coords for proper erase */
+        /* snapshot OLD tail coords for proper erase / growth */
         movl    cur_len(%rip), %ecx
         decl    %ecx
         movl    (%r12,%rcx,4), %eax
@@ -311,9 +307,10 @@ ok_wall:
         movl    (%r13,%rcx,4), %eax
         movl    %eax, tail_y(%rip)
 
-        /* Self-collision? compare new head vs current body */
-        xorl    %ebx, %ebx
+        /* Self-collision? compare new head vs current body (skip index 0, the head) */
+        movl    $1, %ebx
         movl    cur_len(%rip), %eax
+        cmpl    %ebx, %eax
         jle     no_self
 self_loop:
         movl    (%r12,%rbx,4), %ecx
@@ -329,10 +326,11 @@ self_next:
         jg      self_loop
 no_self:
 
-        /* Apples: set grow flag r11d */
-        xorl    %r11d, %r11d
+        /* Apples: set grow flag (in memory, not a volatile register) */
+        movl    $0, grow_flag(%rip)
         xorl    %ebx, %ebx
         movl    apple_count(%rip), %eax
+        testl   %eax, %eax
         jle     apples_done
 apple_loop:
         movl    (%r14,%rbx,4), %ecx
@@ -342,7 +340,7 @@ apple_loop:
         cmpl    %edx, %esi
         jne     next_apple
 
-        movl    $1, %r11d                   /* eaten */
+        incl    grow_flag(%rip)
 
         /* respawn inside inner area */
         call    rand
@@ -358,14 +356,17 @@ apple_loop:
         divl    %ecx
         movl    %edx, %r10d
         incl    %r10d
-
         movl    %r9d,  (%r14,%rbx,4)
         movl    %r10d, (%r15,%rbx,4)
 
+        pushq   %rdi
+        pushq   %rsi
         movl    %r9d, %edi
         movl    %r10d, %esi
         movl    $CH_APPLE, %edx
         call    board_put_char
+        popq    %rsi
+        popq    %rdi
 
         /* speed up slightly */
         movq    delay_us(%rip), %rax
@@ -374,29 +375,15 @@ apple_loop:
         jge     sp_ok
         movq    $MIN_DELAY, %rax
 sp_ok:  movq    %rax, delay_us(%rip)
-        jmp     apples_done
 next_apple:
         incl    %ebx
+        /* rand/div clobber %eax, so reload the bound before comparing */
+        movl    apple_count(%rip), %eax
         cmpl    %ebx, %eax
         jg      apple_loop
 apples_done:
 
         /* --- Move & draw --- */
-
-        /* erase OLD tail if not growing (uses snapshotted tail_x/tail_y) */
-        testl   %r11d, %r11d
-        jne     no_erase
-        movl    tail_x(%rip), %edi
-        movl    tail_y(%rip), %esi
-        movl    $CH_EMPTY, %edx
-        call    board_put_char
-no_erase:
-
-        /* draw OLD head as body 'o' */
-        movl    old_x(%rip), %edi
-        movl    old_y(%rip), %esi
-        movl    $CH_BODY, %edx
-        call    board_put_char
 
         /* shift body right: k=len-1..1 */
         movl    cur_len(%rip), %ecx
@@ -412,15 +399,43 @@ shift_loop:
         jmp     shift_loop
 shift_done:
 
-        /* grow length if needed */
-        testl   %r11d, %r11d
+        /* draw previous head as body AFTER the shift
+           (segment #1 now equals the old head) */
+        movl    4(%r12), %edi          /* x = snake_x[1] */
+        movl    4(%r13), %esi          /* y = snake_y[1] */
+        movl    $CH_BODY, %edx
+        call    board_put_char
+
+        /* grow length if needed (append preserved tail once per apple eaten) */
+        movl    grow_flag(%rip), %ebx
+        testl   %ebx, %ebx
         je      no_grow
+grow_loop:
         movl    cur_len(%rip), %eax
         cmpl    $MAX_SNAKE, %eax
-        jge     no_grow
+        jge     grow_done_one
         incl    %eax
         movl    %eax, cur_len(%rip)
+
+        leal    -1(%eax), %ecx          /* new last index */
+        movl    tail_x(%rip), %edx
+        movl    %edx, (%r12,%rcx,4)
+        movl    tail_y(%rip), %edx
+        movl    %edx, (%r13,%rcx,4)
+grow_done_one:
+        decl    %ebx
+        testl   %ebx, %ebx
+        jg      grow_loop
 no_grow:
+
+        /* erase OLD tail if not growing */
+        cmpl    $0, grow_flag(%rip)
+        jne     no_erase
+        movl    tail_x(%rip), %edi
+        movl    tail_y(%rip), %esi
+        movl    $CH_EMPTY, %edx
+        call    board_put_char
+no_erase:
 
         /* write and draw NEW head from saved next_x/next_y */
         movl    next_x(%rip), %eax
@@ -433,10 +448,9 @@ no_grow:
         movl    $CH_HEAD, %edx
         call    board_put_char
 
-        /* Sleep */
-        movq    delay_us(%rip), %rdi
+        /* Sleep – pass 32-bit useconds_t cleanly */
+        movl    delay_us(%rip), %edi
         call    usleep
-
         jmp     game_loop
 
         /* (Not reached) */
