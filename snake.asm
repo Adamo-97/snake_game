@@ -54,6 +54,9 @@ old_y:          .long  0
 tail_x:         .long  0
 tail_y:         .long  0
 grow_flag:      .long  0
+saved_apple_idx: .long  0
+saved_head_x:   .long  0
+saved_head_y:   .long  0
 
 /* ------------------------------ Code ------------------------------ */
         .text
@@ -342,13 +345,22 @@ apple_loop:
 
         incl    grow_flag(%rip)
 
-        /* respawn inside inner area */
+        /* Save apple index and head position in memory for retry loop */
+        movl    %ebx, saved_apple_idx(%rip)
+        movl    %edi, saved_head_x(%rip)
+        movl    %esi, saved_head_y(%rip)
+
+        /* respawn inside inner area - retry until valid position */
+respawn_retry:
         call    rand
         xorl    %edx, %edx
         movl    $INNER_W, %ecx
         divl    %ecx
         movl    %edx, %r9d
         incl    %r9d
+        
+        /* Save X on stack before second rand() which will clobber r9 */
+        pushq   %r9
 
         call    rand
         xorl    %edx, %edx
@@ -356,17 +368,50 @@ apple_loop:
         divl    %ecx
         movl    %edx, %r10d
         incl    %r10d
+        
+        /* Restore X coordinate */
+        popq    %r9
+
+        /* Check collision with new head position */
+        movl    saved_head_x(%rip), %eax
+        cmpl    %eax, %r9d
+        jne     check_snake_body
+        movl    saved_head_y(%rip), %eax
+        cmpl    %eax, %r10d
+        je      respawn_retry           /* Collision with head, retry */
+        
+check_snake_body:
+        /* Check against current snake body positions */
+        xorl    %ebx, %ebx
+check_loop:
+        movl    cur_len(%rip), %eax
+        cmpl    %ebx, %eax
+        jle     no_collision
+        movl    (%r12,%rbx,4), %ecx
+        movl    (%r13,%rbx,4), %edx
+        cmpl    %ecx, %r9d
+        jne     check_next
+        cmpl    %edx, %r10d
+        je      respawn_retry           /* Collision with body, retry */
+check_next:
+        incl    %ebx
+        jmp     check_loop
+        
+no_collision:
+        /* Valid position found - restore apple index and store */
+        movl    saved_apple_idx(%rip), %ebx
         movl    %r9d,  (%r14,%rbx,4)
         movl    %r10d, (%r15,%rbx,4)
 
-        pushq   %rdi
-        pushq   %rsi
+        /* Draw the new apple */
         movl    %r9d, %edi
         movl    %r10d, %esi
         movl    $CH_APPLE, %edx
         call    board_put_char
-        popq    %rsi
-        popq    %rdi
+        
+        /* Restore original head position for later use */
+        movl    saved_head_x(%rip), %edi
+        movl    saved_head_y(%rip), %esi
 
         /* speed up slightly */
         movq    delay_us(%rip), %rax

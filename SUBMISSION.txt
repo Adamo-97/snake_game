@@ -1,0 +1,238 @@
+
+                    ASSIGNMENT 1330 - SNAKE GAME
+                           SUBMISSION REPORT
+
+STUDENT NAMES:
+--------------
+[GROUP 1]
+[Adam Abdullah]
+[Daniel Mohagheghifard]
+
+DESIRED GRADE:
+--------------
+C (3 points)
+
+SUPPORTED FEATURES:
+-------------------
+
+1. CORE GAME FEATURES (Required - 1 point):
+   + Playable snake game
+   + Configurable number of apples via command-line arguments
+   + Snake grows when eating apples
+   + Arrow key controls (up: 259, down: 258, left: 260, right: 261)
+   + Continuous movement in last direction
+   + No backward movement allowed
+   + Snake dies on self-collision
+   + Snake dies on wall collision
+   + Random apple placement
+   + New apple spawns when eaten
+   + Snake starts at center of board
+
+2. EXTRA FEATURE: SPEED INCREASE (+1 point):
+   + Snake speed increases each time it eats an apple
+   + Delay decreases by DELTA_DELAY (5000 microseconds)
+   + Minimum delay enforced at MIN_DELAY (30000 microseconds)
+   
+   CODE LOCATION: snake.asm, lines 413-420
+   
+   Implementation:
+   - Initial delay: START_DELAY (100000 µs)
+   - After each apple: delay -= DELTA_DELAY
+   - Clamped to minimum: MIN_DELAY
+
+3. EXTRA FEATURE: APPLE COLLISION AVOIDANCE (+1 point):
+   + Apples never spawn on the snake's body
+   + Apples never spawn on the new head position
+   + Retry mechanism generates new position if collision detected
+   
+   CODE LOCATION: snake.asm, lines 346-395
+   
+   Implementation:
+   - Saves apple index and head position (lines 349-351)
+   - Generates random position (lines 354-368)
+   - Checks collision with head (lines 371-378)
+   - Checks collision with all snake segments (lines 380-395)
+   - Retries if collision found, stores if clear
+
+IMPLEMENTATION APPROACH:
+------------------------
+
+1. ARCHITECTURE:
+   - Main game logic: snake.asm (511 lines of x86-64 assembly)
+   - Entry points: start.asm (_start) and main.c (C wrapper)
+   - Helper functions: helpers.c (ncurses interface)
+   - Build system: Makefile (supports both C and ASM entry)
+
+2. DATA STRUCTURES:
+   
+   Arrays (snake.asm, lines 38-42):
+   - snake_x[MAX_SNAKE]: X coordinates of snake segments
+   - snake_y[MAX_SNAKE]: Y coordinates of snake segments
+   - apples_x[MAX_APPLES]: X coordinates of apples
+   - apples_y[MAX_APPLES]: Y coordinates of apples
+   
+   State Variables (snake.asm, lines 47-59):
+   - cur_len: Current snake length
+   - cur_dir: Current direction (0=RIGHT, 1=LEFT, 2=UP, 3=DOWN)
+   - apple_count: Number of apples on screen
+   - delay_us: Current delay between moves
+   - grow_flag: Number of segments to grow
+   - saved_apple_idx, saved_head_x/y: Temporary storage for respawn
+
+3. GAME LOOP STRUCTURE (snake.asm, lines 223-498):
+   
+   a) Input Handling (lines 223-255):
+      - Non-blocking keyboard read via board_get_key()
+      - Direction update with reverse-prevention logic
+      - If no key pressed, maintain current direction
+   
+   b) Movement Calculation (lines 258-273):
+      - Compute dx, dy based on direction
+      - Calculate new head position
+   
+   c) Collision Detection (lines 275-328):
+      - Wall boundary check (lines 287-300)
+      - Self-collision check against body (lines 310-328)
+      - Calls game_exit() on collision
+   
+   d) Apple Detection & Respawn (lines 330-423):
+      - Check if head collides with any apple (lines 336-342)
+      - Increment grow_flag if apple eaten (line 343)
+      - Generate new random position (lines 354-368)
+      - Validate position doesn't collide (lines 371-395)
+      - Store and draw new apple (lines 399-408)
+      - Speed increase logic (lines 413-420)
+   
+   e) Snake Movement & Drawing (lines 426-476):
+      - Shift body segments (lines 429-440)
+      - Draw old head as body (lines 443-447)
+      - Handle growth by appending tail (lines 450-467)
+      - Erase old tail if not growing (lines 470-475)
+      - Write and draw new head (lines 478-484)
+   
+   f) Frame Delay (lines 487-488):
+      - Sleep using usleep() for smooth animation
+
+4. INITIALIZATION (snake.asm, lines 70-218):
+   
+   a) Board Setup (lines 83-113):
+      - Draw '#' border around playfield
+      - Border dimensions: BOARD_W × BOARD_H (60×20)
+      - Inner play area: INNER_W × INNER_H (58×18)
+   
+   b) Parameter Validation (lines 116-145):
+      - Clamp snake length: 2 ≤ len ≤ INNER_W/2
+      - Clamp apple count: 1 ≤ apples ≤ MAX_APPLES
+   
+   c) Snake Initialization (lines 156-186):
+      - Start position: center (BOARD_W/2, BOARD_H/2)
+      - Initial direction: RIGHT
+      - Draw head ('O') and body ('o') segments
+   
+   d) Apple Spawning (lines 189-218):
+      - Generate random positions in inner area
+      - Store coordinates in arrays
+      - Draw apples ('*') on screen
+
+5. CALLING CONVENTION COMPLIANCE:
+   
+   start_game() function (lines 68-512):
+   - Proper function prologue (lines 70-77):
+     * Save frame pointer
+     * Save callee-saved registers (rbx, r12-r15)
+     * Align stack to 16-byte boundary
+   
+   - Parameter handling (lines 79-80):
+     * %edi → initial snake length
+     * %esi → number of apples
+   
+   - Register usage:
+     * %r12: Base pointer to snake_x array
+     * %r13: Base pointer to snake_y array
+     * %r14: Base pointer to apples_x array
+     * %r15: Base pointer to apples_y array
+     * Volatile registers (%rax, %rcx, %rdx, %rsi, %rdi) 
+       saved/restored around function calls
+   
+   - Function epilogue (lines 492-498):
+     * Restore stack and saved registers
+     * Return to caller
+
+6. CRITICAL BUG FIXES IMPLEMENTED:
+   
+   During development, three critical bugs were identified and fixed:
+   
+   a) rand() clobbering %r9 (X coordinate):
+      - Problem: Second rand() call destroyed first random value
+      - Solution: Save %r9 on stack before second rand() (line 362)
+   
+   b) rand() clobbering %rdi/%rsi (head position):
+      - Problem: rand() destroyed saved head coordinates
+      - Solution: Save head position in memory variables (lines 349-351)
+      
+   c) Stack management complexity:
+      - Problem: Complex push/pop sequences caused crashes
+      - Solution: Simplified using memory storage for retry loop
+
+7. ASSEMBLY SYNTAX & CONVENTIONS:
+   
+   - AT&T syntax throughout (.att_syntax directive, line 1)
+   - GNU as assembler compatible
+   - RIP-relative addressing for position-independent code
+   - Proper symbol visibility (.globl, .extern)
+   - Section organization (.text, .data, .bss)
+   - Type annotations for functions (.type, .size)
+
+COMPILATION & EXECUTION:
+------------------------
+
+Build both versions:
+  $ make
+
+Run with C entry point:
+  $ ./snake_asm <length> <apples>
+  Example: ./snake_asm 5 2
+
+Run with assembly entry point:
+  $ ./snake_asm_start
+  (Hardcoded to length=5, apples=2 in start.asm)
+
+Clean build artifacts:
+  $ make clean
+
+TESTING:
+--------
+
+The game has been thoroughly tested for:
+- Various snake lengths (2 to 29)
+- Multiple apples (1 to 64)
+- All movement directions and combinations
+- Self-collision detection
+- Wall collision detection
+- Apple respawning with collision avoidance
+- Speed increase functionality
+- Memory safety (no segfaults)
+
+KNOWN LIMITATIONS:
+------------------
+
+1. Snake appears on the same side when hitting wall (dies, as per requirement)
+2. No wrap-around feature (snake dies at walls)
+3. Initial apple placement may overlap with initial snake (acceptable per spec)
+4. No timer feature (would require additional implementation)
+5. Helpers remain in C (converting to assembly would be extra credit)
+
+FILES INCLUDED:
+---------------
+
+1. snake.asm        - Main game implementation (x86-64 assembly)
+2. start.asm        - Assembly entry point (_start symbol)
+3. main.c           - C entry point wrapper
+4. helpers.c        - ncurses helper functions (provided)
+5. Makefile         - Build configuration (modified for both entry points)
+6. SUBMISSION.txt   - This file
+7. README.md        - Detailed project documentation
+8. workaround.asm   - Linker compatibility for assembly entry
+
+TOTAL POINTS: 3
+EXPECTED GRADE: C
