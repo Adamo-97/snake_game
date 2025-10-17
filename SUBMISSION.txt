@@ -158,22 +158,6 @@ IMPLEMENTATION APPROACH:
      * Restore stack and saved registers
      * Return to caller
 
-6. CRITICAL BUG FIXES IMPLEMENTED:
-   
-   During development, three critical bugs were identified and fixed:
-   
-   a) rand() clobbering %r9 (X coordinate):
-      - Problem: Second rand() call destroyed first random value
-      - Solution: Save %r9 on stack before second rand() (line 362)
-   
-   b) rand() clobbering %rdi/%rsi (head position):
-      - Problem: rand() destroyed saved head coordinates
-      - Solution: Save head position in memory variables (lines 349-351)
-      
-   c) Stack management complexity:
-      - Problem: Complex push/pop sequences caused crashes
-      - Solution: Simplified using memory storage for retry loop
-
 7. ASSEMBLY SYNTAX & CONVENTIONS:
    
    - AT&T syntax throughout (.att_syntax directive, line 1)
@@ -190,12 +174,12 @@ Build both versions:
   $ make
 
 Run with C entry point:
-  $ ./snake_asm <length> <apples>
-  Example: ./snake_asm 5 2
+  $ ./snake <length> <apples>
+  Example: ./snake 5 2
 
 Run with assembly entry point:
-  $ ./snake_asm_start
-  (Hardcoded to length=5, apples=2 in start.asm)
+  $ ./snake_asm
+  Example: ./snake_asm 5 2 (" or can be left blank, default is 5 2 ")
 
 Clean build artifacts:
   $ make clean
@@ -213,15 +197,6 @@ The game has been thoroughly tested for:
 - Speed increase functionality
 - Memory safety (no segfaults)
 
-KNOWN LIMITATIONS:
-------------------
-
-1. Snake appears on the same side when hitting wall (dies, as per requirement)
-2. No wrap-around feature (snake dies at walls)
-3. Initial apple placement may overlap with initial snake (acceptable per spec)
-4. No timer feature (would require additional implementation)
-5. Helpers remain in C (converting to assembly would be extra credit)
-
 FILES INCLUDED:
 ---------------
 
@@ -231,8 +206,7 @@ FILES INCLUDED:
 4. helpers.c        - ncurses helper functions (provided)
 5. Makefile         - Build configuration (modified for both entry points)
 6. SUBMISSION.txt   - This file
-7. README.md        - Detailed project documentation
-8. workaround.asm   - Linker compatibility for assembly entry
+7. workaround.asm   - Linker compatibility for assembly entry
 
 TOTAL POINTS: 3
 EXPECTED GRADE: C
